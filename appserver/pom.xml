@@ -68,7 +68,7 @@
         <jstl-api.version>1.2.1</jstl-api.version>
         <mojarra.version>2.2.12</mojarra.version>
         <jsf-ext.version>0.2</jsf-ext.version>
-        <woodstock.version>4.0.2.10</woodstock.version>
+        <woodstock.version>4.0.2.10.payara-p2</woodstock.version>
         <javax.ejb-api.version>3.2</javax.ejb-api.version>
         <javax.interceptor-api.version>1.2</javax.interceptor-api.version>
         <javax.xml.rpc-api.version>1.1.1</javax.xml.rpc-api.version>
@@ -105,7 +105,7 @@
         <uc-pkg-client.version>1.122-57.2889</uc-pkg-client.version>
         <uc-pkg-bootstrap.version>1.122-57.2889</uc-pkg-bootstrap.version>
         <pax.logging.version>1.8.4</pax.logging.version>
-        <webservices.version>2.3.2-b608.payara-p1</webservices.version>
+        <webservices.version>2.3.2-b608.payara-p2</webservices.version>
         <jsr181-api.version>1.0-MR1</jsr181-api.version>
         <woodstox.version>4.2.0</woodstox.version>
         <jaxb-api.version>2.2.13-b141020.1521</jaxb-api.version>
