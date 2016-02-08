@@ -1,0 +1,1 @@
+mvn versions:set -DnewVersion=%1 -DartifactId=* -DgroupId=* -Drelease-phase-all=true
