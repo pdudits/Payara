@@ -261,7 +261,8 @@ public class InboundRecoveryHandler implements RecoveryResourceHandler {
 
         if(ResourcesUtil.createInstance().isEnabled(application)){
             ApplicationInfo appInfo = appsRegistry.get(application.getName());
-            if(appInfo != null){
+            // non java-ee apps do not have ejbs, and they dont't have Application entry, leading to NPE            
+            if(appInfo != null && appInfo.isJavaEEApp()){
                 com.sun.enterprise.deployment.Application app =
                         appInfo.getMetaData(com.sun.enterprise.deployment.Application.class);
                 Set<BundleDescriptor> descriptors = app.getBundleDescriptors();
