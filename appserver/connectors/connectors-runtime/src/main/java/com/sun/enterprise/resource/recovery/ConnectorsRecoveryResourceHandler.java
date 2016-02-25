@@ -217,7 +217,9 @@ public class ConnectorsRecoveryResourceHandler implements RecoveryResourceHandle
         ConnectorRuntime crt = connectorRuntimeProvider.get();
 
         //Done so as to load all connector-modules. need to load only connector-modules instead of all apps
-        startupProvider.get();
+        // Application startup already guarantees that connectors are loaded instead of applications
+        // Recovery is run during application initialization, therefore waiting for apps would cause deadlock
+        //startupProvider.get();
 
         Collection<ConnectorResource> connectorResources = getAllConnectorResources();
 
