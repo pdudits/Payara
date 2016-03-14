@@ -3,7 +3,7 @@
 
     DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 
-    Copyright (c) 2013-2015 Oracle and/or its affiliates. All rights reserved.
+    Copyright (c) 2008-2014 Oracle and/or its affiliates. All rights reserved.
 
     The contents of this file are subject to the terms of either the GNU
     General Public License Version 2 only ("GPL") or the Common Development
@@ -44,75 +44,92 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.glassfish.main.admin</groupId>
-        <artifactId>admin</artifactId>
-        <version>4.1.1.161.1-icon-3</version>
+        <groupId>org.glassfish.main</groupId>
+        <artifactId>glassfish-parent</artifactId>
+        <version>4.1.1.161-icon-2</version>
     </parent>
-    <artifactId>appserver-cli</artifactId>
-    <packaging>glassfish-jar</packaging>
     
-    <name>App Server CLI Skinning Class</name>
-    <description>App Server CLI Skinning Class</description>
+    <groupId>org.glassfish.main.installer</groupId>
+    <artifactId>installer</artifactId>
+    <name>Glassfish Installer</name>
+    <packaging>distribution-base-zip</packaging>
+    <description>This pom describes how to build Glassfish Installer</description>
 
-    <developers>
-        <developer>
-            <id>kasso</id>
-            <name>Chris Kasso</name>
-            <organization>Oracle, Inc.</organization>
-            <roles>
-                <role>developer</role>
-            </roles>
-        </developer>
-    </developers>
-    
     <build>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
+                <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>org.glassfish.admin.cli.AsadminMain</mainClass>
-                        </manifest>
-                        <manifestEntries>
-                            <Class-Path>../../modules/admin-cli.jar</Class-Path>
-                        </manifestEntries>
-                    </archive>
+                    <skip>true</skip>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>unpack</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>unpack</goal>
-                        </goals>
-                        <configuration>
-                            <artifactItems>
-                                <artifactItem>
-                                    <groupId>org.glassfish.docs.man</groupId>
-                                    <artifactId>appserver-cli-manpage</artifactId>
-                                    <version>${v3-docs.version}</version>
-                                    <type>zip</type>
-                                    <overWrite>true</overWrite>
-                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
-                                </artifactItem>
-                            </artifactItems>
-                        </configuration>
-                    </execution>
-                </executions>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.6</source>
+                    <target>1.6</target>
+                </configuration>
+            </plugin>
+            <plugin>
+		<groupId>org.jvnet.maven-antrun-extended-plugin</groupId>
+                <artifactId>maven-antrun-extended-plugin</artifactId>
+   		<executions>
+                   <execution>
+                     <phase>package</phase>
+                     <configuration>
+                       <tasks>
+                         <ant dir="." antfile="build.xml" target="all">
+			 </ant>
+                       </tasks>
+                     </configuration>
+		     <goals>
+                        <goal>run</goal>
+                     </goals>
+                  </execution>
+                </executions>
+             </plugin>
         </plugins>
     </build>
     <dependencies>
         <dependency>
-            <groupId>org.glassfish.main.admin</groupId>
-            <artifactId>admin-cli</artifactId>
+           <groupId>org.openinstaller</groupId>
+           <artifactId>engine</artifactId>
+           <version>0.9.5.3</version>
+           <type>zip</type>
+        </dependency> 
+        <dependency>
+           <groupId>org.openinstaller</groupId>
+           <artifactId>resources</artifactId>
+           <version>0.9.4.4</version>
+           <type>zip</type>
+        </dependency> 
+        <dependency>
+           <groupId>com.sun.pkg</groupId>
+           <artifactId>pkg-bootstrap</artifactId>
+         </dependency>
+         <dependency>
+           <groupId>com.sun.pkg</groupId>
+           <artifactId>pkg-client</artifactId>
+	</dependency> 
+	<dependency>
+            <groupId>org.glassfish.main.registration</groupId>
+            <artifactId>registration-api</artifactId>
+            <version>${project.parent.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.main.registration</groupId>
+            <artifactId>registration-impl</artifactId>
             <version>${project.parent.version}</version>
         </dependency>
     </dependencies>
 </project>
+
