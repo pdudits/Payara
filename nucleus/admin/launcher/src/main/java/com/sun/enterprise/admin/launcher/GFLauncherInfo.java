@@ -281,7 +281,9 @@ public class GFLauncherInfo {
             map.put("-instancedir", SmartFile.sanitize(instanceRootDir.getPath()));
         }
 
-        // no need for watchdog here.  It is a client-side phenomenon only!
+        // watchdog is important, so that the launched server knows, it shouldn't respawn, but rather watchdog will
+        // do it instead
+        map.put("-watchdog", Boolean.toString(watchdog));
         map.put("-verbose", Boolean.toString(verbose));
         map.put("-debug", Boolean.toString(debug));
         map.put("-instancename", instanceName);
