@@ -39,67 +39,45 @@
  */
 package fish.payara.monitoring.web;
 
-import static java.util.stream.StreamSupport.stream;
+import java.math.BigInteger;
+import java.util.Collection;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import javax.enterprise.context.RequestScoped;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-
-import org.glassfish.internal.api.Globals;
-
-import fish.payara.monitoring.model.Series;
 import fish.payara.monitoring.model.SeriesDataset;
-import fish.payara.monitoring.store.MonitoringDataRepository;
 
-@Path("/")
-@Produces(MediaType.APPLICATION_JSON)
-@RequestScoped
-public class MonitoringConsoleResource {
+public final class SeriesResponse {
 
-    private static MonitoringDataRepository getDataStore() {
-        return Globals.getDefaultBaseServiceLocator().getService(MonitoringDataRepository.class);
-    }
-
-    @GET
-    @Path("/series/data/{series}/")
-    public SeriesResponse[] getSeries(@PathParam("series") String series) {
-        return SeriesResponse.from(getDataStore().selectSeries(new Series(series)));
-    }
-
-    @POST
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Path("/series/data/")
-    public Map<Series, SeriesResponse[]> querySeries(Query query) {
-        Map<Series, SeriesResponse[]> res = new HashMap<>();
-        for (SeriesRequest seriesRequest : query.series) {
-            Series key = new Series(seriesRequest.series);
-            List<SeriesDataset> value = getDataStore().selectSeries(key, seriesRequest.instances);
-            if (value != null && !value.isEmpty()) {
-                res.put(key, SeriesResponse.from(value));
-            }
+    public static SeriesResponse[] from(Collection<SeriesDataset> sets) {
+        SeriesResponse[] stats = new SeriesResponse[sets.size()];
+        int i = 0;
+        for (SeriesDataset set : sets) {
+            stats[i++] = new SeriesResponse(set);
         }
-        return res;
+        return stats;
     }
 
-    @GET
-    @Path("/series/")
-    public String[] getSeriesNames() {
-        return stream(getDataStore().selectAllSeries().spliterator(), false)
-                .map(dataset -> dataset.getSeries().toString()).sorted().toArray(String[]::new);
-    }
+    public final String series;
+    public final String instance;
+    public final long[] points;
+    public final long observedMax;
+    public final long observedMin;
+    public final BigInteger observedSum;
+    public final int observedValues;
+    public final int observedValueChanges;
+    public final long observedSince;
+    public final int stableCount;
+    public final long stableSince;
 
-    @GET
-    @Path("/instances/")
-    public String[] getInstanceNames() {
-        return getDataStore().instances().toArray(new String[0]);
+    public SeriesResponse(SeriesDataset set) {
+        this.instance = set.getInstance();
+        this.series = set.getSeries().toString();
+        this.points = set.points();
+        this.observedMax = set.getObservedMax();
+        this.observedMin = set.getObservedMin();
+        this.observedSum = set.getObservedSum();
+        this.observedValues = set.getObservedValues();
+        this.observedValueChanges = set.getObservedValueChanges();
+        this.observedSince = set.getObservedSince();
+        this.stableCount = set.getStableCount();
+        this.stableSince = set.getStableSince();
     }
 }
