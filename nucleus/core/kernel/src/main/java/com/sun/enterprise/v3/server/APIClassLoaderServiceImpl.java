@@ -46,8 +46,12 @@ import com.sun.enterprise.module.ModuleLifecycleListener;
 import com.sun.enterprise.module.ModuleState;
 import com.sun.enterprise.module.ModulesRegistry;
 import com.sun.enterprise.module.common_impl.CompositeEnumeration;
+
+import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
@@ -59,7 +63,11 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 import javax.inject.Inject;
+
+import com.sun.enterprise.util.JDK;
+import org.glassfish.api.admin.ServerEnvironment;
 import org.glassfish.hk2.api.PostConstruct;
 import org.glassfish.kernel.KernelLoggerInfo;
 import org.jvnet.hk2.annotations.Service;
@@ -96,6 +104,9 @@ public class APIClassLoaderServiceImpl implements PostConstruct {
     
     @Inject
     ModulesRegistry mr;
+
+    @Inject
+    ServerEnvironment environment;
     
     /**
      * This is the module that we delegate to.
@@ -126,6 +137,7 @@ public class APIClassLoaderServiceImpl implements PostConstruct {
     };
     final static Logger logger = KernelLoggerInfo.getLogger();
     private HK2Module APIModule;
+
 
     @Override
     public void postConstruct() {
@@ -159,11 +171,18 @@ public class APIClassLoaderServiceImpl implements PostConstruct {
     }
 
     private ClassLoader getExtensionClassLoader() {
-        // check for micro boot classloader as it needs to be in the hierachy
-        //if (Thread.currentThread().getContextClassLoader().getClass().getName().contains("LaunchedURLClassLoader")) {
-        //    return Thread.currentThread().getContextClassLoader();
-        //}
-        
+        if (JDK.getMajor() > 1) {
+            // on JDK 9+ there is no ext classloader, we'll make our own
+            // TODO: Create compatibility platform classloader to include APIs like JAXB or CORBA
+            return createFallbackExtClassLoader(getPlatformClassLoader());
+        } else {
+            // On JDK 8, extension classloader is platform classloader
+            return getPlatformClassLoader();
+        }
+    }
+
+
+    private ClassLoader getPlatformClassLoader() {
         if (System.getSecurityManager() != null) {
             return AccessController.doPrivileged(new PrivilegedAction<ClassLoader>() {
                 @Override
@@ -173,6 +192,28 @@ public class APIClassLoaderServiceImpl implements PostConstruct {
             });        
         } else {
             return ClassLoader.getSystemClassLoader().getParent();
+        }
+    }
+
+    private ClassLoader createFallbackExtClassLoader(ClassLoader parent) {
+        File extDir = new File(environment.getLibPath(), "ext/");
+        if (extDir.exists() && extDir.isDirectory()) {
+            File[] jars = extDir.listFiles((File f) -> f.getName().toLowerCase().endsWith(".jar"));
+            if (jars.length == 0) {
+                return parent;
+            }
+            return new URLClassLoader(Stream.of(jars).map(APIClassLoaderServiceImpl::fileToUrl)
+                    .toArray(URL[]::new), parent);
+        } else {
+            return parent;
+        }
+    }
+
+    private static URL fileToUrl(File f) {
+        try {
+            return f.toURI().toURL();
+        } catch (MalformedURLException e) {
+            throw new IllegalArgumentException("Cannot construct ext class path", e);
         }
     }
 
