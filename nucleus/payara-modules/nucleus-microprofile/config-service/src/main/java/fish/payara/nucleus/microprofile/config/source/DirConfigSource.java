@@ -217,8 +217,10 @@ public class DirConfigSource extends PayaraConfigSource implements ConfigSource 
         try {
             // get the directory from the app server config
             this.directory = findDir();
-            // create the watcher for the directory
-            configService.getExecutor().scheduleWithFixedDelay(createWatcher(this.directory), 0, 1, SECONDS);
+            if (this.directory != null) {
+                // create the watcher for the directory
+                configService.getExecutor().scheduleWithFixedDelay(createWatcher(this.directory), 0, 1, SECONDS);
+            }
         } catch (IOException e) {
             logger.log(SEVERE, "MPCONFIG DirConfigSource: error during setup.", e);
         }
@@ -283,6 +285,11 @@ public class DirConfigSource extends PayaraConfigSource implements ConfigSource 
             if (isAptDir(candidate)) {
                 return candidate;
             }
+        }
+        if ("secrets".equals(path)) {
+            // This is default setting of MicroprofileConfigConfiguration. If it's not available, we don't initialize
+            // this source
+            return null;
         }
         throw new IOException("Given MPCONFIG directory '"+path+"' is no directory, cannot be read or has a leading dot.");
     }
