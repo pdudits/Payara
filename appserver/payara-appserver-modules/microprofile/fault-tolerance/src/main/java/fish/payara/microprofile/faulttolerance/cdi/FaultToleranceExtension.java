@@ -87,18 +87,19 @@ public class FaultToleranceExtension implements Extension {
     private static final String INTERCEPTOR_PRIORITY_PROPERTY = "mp.fault.tolerance.interceptor.priority";
 
     void beforeBeanDiscovery(@Observes BeforeBeanDiscovery beforeBeanDiscovery, BeanManager beanManager) {
-        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(FaultToleranceInterceptor.class), "MP-FT");
 
 //        beforeBeanDiscovery.addInterceptorBinding(Asynchronous.class);
-//        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(AsynchronousInterceptor.class), "MP-FT-Asynchronous");
-        beforeBeanDiscovery.addInterceptorBinding(Bulkhead.class);
+        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(AsynchronousInterceptor.class), "MP-FT-Asynchronous");
+//        beforeBeanDiscovery.addInterceptorBinding(Bulkhead.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(BulkheadInterceptor.class), "MP-FT-Bulkhead");
-        beforeBeanDiscovery.addInterceptorBinding(CircuitBreaker.class);
+//        beforeBeanDiscovery.addInterceptorBinding(CircuitBreaker.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(CircuitBreakerInterceptor.class), "MP-FT-CircuitBreaker");
-        beforeBeanDiscovery.addInterceptorBinding(Retry.class);
+//        beforeBeanDiscovery.addInterceptorBinding(Retry.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(RetryInterceptor.class), "MP-FT-Retry");
-        beforeBeanDiscovery.addInterceptorBinding(Timeout.class);
+//        beforeBeanDiscovery.addInterceptorBinding(Timeout.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(TimeoutInterceptor.class), "MP-FT-Timeout");
+//        beforeBeanDiscovery.addInterceptorBinding(Fallback.class);
+//        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(FallbackInterceptor.class), "MP-FT-Fallback");
     }
 
     /**
@@ -119,7 +120,7 @@ public class FaultToleranceExtension implements Extension {
             if (markAllMethods || FaultToleranceUtils.isAnnotatedWithFaultToleranceAnnotations(method)
                     || isAnyAnnotationPresent(method, alternativeAsynchronousAnnotations)) {
                 FaultTolerancePolicy.asAnnotated(targetClass, method.getJavaMember());
-                methodConfigurator.add(MARKER);
+//                methodConfigurator.add(MARKER);
             }
         }
     }

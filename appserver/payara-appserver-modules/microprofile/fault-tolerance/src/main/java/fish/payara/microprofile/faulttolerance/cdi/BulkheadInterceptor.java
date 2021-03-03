@@ -9,7 +9,7 @@ import javax.interceptor.InvocationContext;
 
 @Interceptor
 @Bulkhead
-@Priority(Interceptor.Priority.PLATFORM_AFTER + 16)
+@Priority(Interceptor.Priority.PLATFORM_AFTER + 15)
 public class BulkheadInterceptor extends FaultToleranceInterceptor {
 
     @AroundInvoke

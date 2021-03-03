@@ -9,7 +9,7 @@ import javax.interceptor.InvocationContext;
 
 @Interceptor
 @CircuitBreaker
-@Priority(Interceptor.Priority.PLATFORM_AFTER + 16)
+@Priority(Interceptor.Priority.PLATFORM_AFTER + 15)
 public class CircuitBreakerInterceptor extends FaultToleranceInterceptor {
 
     @AroundInvoke

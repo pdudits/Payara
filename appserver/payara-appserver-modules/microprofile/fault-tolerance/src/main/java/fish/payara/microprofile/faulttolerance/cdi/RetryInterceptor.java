@@ -9,7 +9,7 @@ import javax.interceptor.InvocationContext;
 
 @Interceptor
 @Retry
-@Priority(Interceptor.Priority.PLATFORM_AFTER + 16)
+@Priority(Interceptor.Priority.PLATFORM_AFTER + 15)
 public class RetryInterceptor extends FaultToleranceInterceptor {
 
     @AroundInvoke
