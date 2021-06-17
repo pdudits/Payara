@@ -42,15 +42,16 @@ package fish.payara.microprofile.faulttolerance.cdi;
 import fish.payara.microprofile.faulttolerance.FaultToleranceConfig;
 import fish.payara.microprofile.faulttolerance.policy.FaultTolerancePolicy;
 import fish.payara.microprofile.faulttolerance.service.FaultToleranceUtils;
-
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
-import java.util.Optional;
+import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.faulttolerance.Asynchronous;
+import org.eclipse.microprofile.faulttolerance.Bulkhead;
+import org.eclipse.microprofile.faulttolerance.CircuitBreaker;
+import org.eclipse.microprofile.faulttolerance.Fallback;
+import org.eclipse.microprofile.faulttolerance.Retry;
+import org.eclipse.microprofile.faulttolerance.Timeout;
 
 import javax.annotation.Priority;
 import javax.enterprise.event.Observes;
-import javax.enterprise.inject.spi.AfterBeanDiscovery;
-import javax.enterprise.inject.spi.AfterTypeDiscovery;
 import javax.enterprise.inject.spi.Annotated;
 import javax.enterprise.inject.spi.AnnotatedMethod;
 import javax.enterprise.inject.spi.AnnotatedType;
@@ -61,14 +62,9 @@ import javax.enterprise.inject.spi.ProcessAnnotatedType;
 import javax.enterprise.inject.spi.WithAnnotations;
 import javax.enterprise.inject.spi.configurator.AnnotatedMethodConfigurator;
 import javax.enterprise.util.AnnotationLiteral;
-
-import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.faulttolerance.Asynchronous;
-import org.eclipse.microprofile.faulttolerance.Bulkhead;
-import org.eclipse.microprofile.faulttolerance.CircuitBreaker;
-import org.eclipse.microprofile.faulttolerance.Fallback;
-import org.eclipse.microprofile.faulttolerance.Retry;
-import org.eclipse.microprofile.faulttolerance.Timeout;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.util.Optional;
 
 /**
  * CDI Extension that does the setup for FT interceptor handling.
@@ -78,28 +74,22 @@ import org.eclipse.microprofile.faulttolerance.Timeout;
  */
 public class FaultToleranceExtension implements Extension {
 
+    private static final String INTERCEPTOR_PRIORITY_PROPERTY = "mp.fault.tolerance.interceptor.priority";
+
     /**
      * The {@link FaultTolerance} "instance" we use to dynamically mark methods at runtime that should be
      * handled by the {@link FaultToleranceInterceptor} that handles all of the FT annotations.
      */
     private static final Annotation MARKER = () -> FaultTolerance.class;
 
-    private static final String INTERCEPTOR_PRIORITY_PROPERTY = "mp.fault.tolerance.interceptor.priority";
-
     void beforeBeanDiscovery(@Observes BeforeBeanDiscovery beforeBeanDiscovery, BeanManager beanManager) {
-
-//        beforeBeanDiscovery.addInterceptorBinding(Asynchronous.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(AsynchronousInterceptor.class), "MP-FT-Asynchronous");
-//        beforeBeanDiscovery.addInterceptorBinding(Bulkhead.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(BulkheadInterceptor.class), "MP-FT-Bulkhead");
-//        beforeBeanDiscovery.addInterceptorBinding(CircuitBreaker.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(CircuitBreakerInterceptor.class), "MP-FT-CircuitBreaker");
-//        beforeBeanDiscovery.addInterceptorBinding(Retry.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(RetryInterceptor.class), "MP-FT-Retry");
-//        beforeBeanDiscovery.addInterceptorBinding(Timeout.class);
         beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(TimeoutInterceptor.class), "MP-FT-Timeout");
-//        beforeBeanDiscovery.addInterceptorBinding(Fallback.class);
 //        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(FallbackInterceptor.class), "MP-FT-Fallback");
+//        beforeBeanDiscovery.addAnnotatedType(beanManager.createAnnotatedType(FaultToleranceInterceptor.class), "MP-FT");
     }
 
     /**
@@ -110,6 +100,16 @@ public class FaultToleranceExtension implements Extension {
      */
     <T> void processAnnotatedType(@Observes @WithAnnotations({ Asynchronous.class, Bulkhead.class, CircuitBreaker.class,
         Fallback.class, Retry.class, Timeout.class }) ProcessAnnotatedType<T> processAnnotatedType) throws Exception {
+        // Ignore our own interceptor classes
+        Class<T> annotatedClass = processAnnotatedType.getAnnotatedType().getJavaClass();
+        if (annotatedClass.equals(AsynchronousInterceptor.class)
+                || annotatedClass.equals(BulkheadInterceptor.class)
+                || annotatedClass.equals(CircuitBreakerInterceptor.class)
+                || annotatedClass.equals(RetryInterceptor.class)
+                || annotatedClass.equals(TimeoutInterceptor.class)) {
+            return;
+        }
+
         Class<? extends Annotation>[] alternativeAsynchronousAnnotations = getAlternativeAsynchronousAnnotations();
         AnnotatedType<T> type = processAnnotatedType.getAnnotatedType();
         boolean markAllMethods = FaultToleranceUtils.isAnnotatedWithFaultToleranceAnnotations(type)

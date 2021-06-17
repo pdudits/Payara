@@ -46,13 +46,10 @@ import fish.payara.microprofile.faulttolerance.service.Stereotypes;
 import org.eclipse.microprofile.faulttolerance.exceptions.FaultToleranceDefinitionException;
 import org.glassfish.internal.api.Globals;
 
-import javax.annotation.Priority;
 import javax.enterprise.context.control.RequestContextController;
 import javax.enterprise.inject.Instance;
 import javax.enterprise.inject.spi.BeanManager;
 import javax.inject.Inject;
-import javax.interceptor.AroundInvoke;
-import javax.interceptor.Interceptor;
 import javax.interceptor.InvocationContext;
 import java.io.Serializable;
 import java.lang.annotation.Annotation;
@@ -78,7 +75,6 @@ public class FaultToleranceInterceptor implements Stereotypes, Serializable {
     protected static final String PAYARA_FAULT_TOLERANCE_INTERCEPTOR_EXECUTED =
             "fish.payara.microprofile.faulttolerance.executed";
 
-    @AroundInvoke
     public Object intercept(InvocationContext context) throws Exception {
         context.getContextData().put(PAYARA_FAULT_TOLERANCE_INTERCEPTOR_EXECUTED, Boolean.TRUE);
         try {

@@ -40,21 +40,17 @@
 
 package fish.payara.microprofile.faulttolerance.cdi;
 
-import org.eclipse.microprofile.faulttolerance.Bulkhead;
+//import org.eclipse.microprofile.faulttolerance.Fallback;
+//
+//import javax.annotation.Priority;
+//import javax.interceptor.Interceptor;
 
-import javax.annotation.Priority;
-import javax.interceptor.AroundInvoke;
-import javax.interceptor.Interceptor;
-import javax.interceptor.InvocationContext;
+//@Interceptor
+//@Fallback
+//@Priority(Interceptor.Priority.PLATFORM_AFTER + 15)
+public class FallbackInterceptor extends FaultToleranceInterceptor {
 
-@Interceptor
-@Bulkhead
-@Priority(Interceptor.Priority.PLATFORM_AFTER + 15)
-public class BulkheadInterceptor extends FaultToleranceInterceptor {
 
-    @AroundInvoke
-    public Object intercept(InvocationContext invocationContext) throws Exception {
-        return shouldIntercept(invocationContext) ? super.intercept(invocationContext) : invocationContext.proceed();
-    }
 
 }
+
