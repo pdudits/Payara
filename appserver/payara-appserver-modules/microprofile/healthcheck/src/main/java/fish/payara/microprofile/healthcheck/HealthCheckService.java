@@ -61,7 +61,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -383,17 +382,20 @@ public class HealthCheckService implements EventListener, ConfigListener, Monito
         } else if (type == STARTUP) {
             healthChecks = startup;
         } else {
-            // Make sure we do a deep-copy first, otherwise the first map the foreach consumer gets used on will be a
-            // shallow copy: the two maps will essentially be the same map (changes to one affecting the other)
-            healthChecks = readiness.entrySet().stream().collect(Collectors.toMap(entry ->
-                    entry.getKey(), entry -> new HashSet(entry.getValue())));
-            BiConsumer<? super String, ? super Set<HealthCheck>> mergeHealthCheckMap
-                    = (key, value) -> healthChecks.merge(key, value, (oldValue, newValue) -> {
-                        oldValue.addAll(newValue);
-                        return oldValue;
-                    });
-            liveness.forEach(mergeHealthCheckMap);
-            startup.forEach(mergeHealthCheckMap);
+            class Union {
+                Map<String, Set<HealthCheck>> result = new HashMap<>();
+
+                void add(String key, Set<HealthCheck> value) {
+                    Set<HealthCheck> set = result.computeIfAbsent(key, (k) -> new HashSet<>());
+                    set.addAll(value);
+                }
+            }
+
+            Union union = new Union();
+            readiness.forEach(union::add);
+            liveness.forEach(union::add);
+            startup.forEach(union::add);
+            healthChecks = union.result;
         }
         return healthChecks;
     }
