@@ -42,42 +42,54 @@
 
 package fish.payara.appserver.web.core;
 
-import org.apache.catalina.LifecycleException;
-import org.apache.catalina.LifecycleState;
-import org.apache.catalina.connector.Connector;
-import org.glassfish.grizzly.http.server.HttpHandler;
+import java.util.concurrent.TimeUnit;
 
-public class GrizzlyConnector extends Connector {
-    private final GrizzlyCatalinaBridge bridge = new GrizzlyCatalinaBridge(this);
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import org.apache.catalina.Context;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.core.AsyncContextImpl;
+import org.glassfish.grizzly.EmptyCompletionHandler;
+import org.glassfish.grizzly.http.server.Response;
 
-    public HttpHandler asHttpHandler() {
-        return bridge;
+public class CatalinaAsyncContext extends AsyncContextImpl {
+    private volatile CatalinaRequest catalinaRequest;
+
+    public CatalinaAsyncContext(CatalinaRequest request) {
+        super(request);
+        this.catalinaRequest = request;
     }
 
     @Override
-    public CatalinaRequest createRequest() {
-        throw new UnsupportedOperationException("We use different execution paths");
+    public void recycle() {
+        super.recycle();
+        this.catalinaRequest = null;
     }
 
     @Override
-    public org.apache.catalina.connector.Response createResponse() {
-        throw new UnsupportedOperationException("We use different execution paths");
+    public void complete() {
+        super.complete();
+        // we should probably check the state machine and have the response resume on correct thread
+        if (!catalinaRequest.getCoyoteRequest().isRequestThread()) {
+            // it's not safe to just mark response as resumed
+            catalinaRequest.getGrizzlyRequest().getResponse().resume();
+        } else {
+            final Response.SuspendedContextImpl suspendContext = (Response.SuspendedContextImpl) catalinaRequest.getGrizzlyRequest().getResponse().getSuspendContext();
+
+            suspendContext.markResumed();
+            suspendContext.getSuspendStatus().reset();
+        }
     }
 
     @Override
-    protected void startInternal() throws LifecycleException {
-        // that just starts protocol handler, and all related machinery, we're not ready for that.
-        setState(LifecycleState.STARTING);
-    }
-
-    @Override
-    protected void stopInternal() throws LifecycleException {
-        setState(LifecycleState.STOPPING);
-    }
-
-    @Override
-    protected void initInternal() throws LifecycleException {
-        // we're not using protocalhandler facitily
-
+    public void setStarted(Context context, ServletRequest request, ServletResponse response, boolean originalRequestResponse) {
+        super.setStarted(context, request, response, originalRequestResponse);
+        catalinaRequest.getResponse().getGrizzlyResponse().suspend(-1, TimeUnit.MILLISECONDS,
+                new EmptyCompletionHandler<>(){
+                    @Override
+                    public void completed(Response result) {
+                        fireOnComplete();
+                    }
+                }, (x) -> timeout()); // TODO: this needs additional confirmation over processor
     }
 }

@@ -57,17 +57,9 @@ import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import jakarta.servlet.AsyncContext;
-import jakarta.servlet.DispatcherType;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ReadListener;
-import jakarta.servlet.RequestDispatcher;
-import jakarta.servlet.ServletContext;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.ServletInputStream;
-import jakarta.servlet.ServletRequest;
-import jakarta.servlet.ServletResponse;
+import jakarta.servlet.*;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpServletRequest;
@@ -83,6 +75,8 @@ import org.apache.catalina.Wrapper;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.core.AsyncContextImpl;
 import org.apache.catalina.mapper.MappingData;
+import org.apache.coyote.ActionCode;
+import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.buf.B2CConverter;
 import org.apache.tomcat.util.buf.MessageBytes;
 import org.apache.tomcat.util.http.ServerCookies;
@@ -95,6 +89,8 @@ import org.glassfish.grizzly.http.server.util.Globals;
 public class CatalinaRequest extends org.apache.catalina.connector.Request {
 
     private Request grizzlyRequest;
+
+    private CatalinaAsyncContext catalinaAsyncContext;
 
     public boolean supportsRelativeRedirects() {
         return grizzlyRequest.getProtocol() != Protocol.HTTP_0_9 && grizzlyRequest.getProtocol() != Protocol.HTTP_1_0;
@@ -156,6 +152,9 @@ public class CatalinaRequest extends org.apache.catalina.connector.Request {
     public void recycle() {
         super.recycle();
         coyoteRequest.recycle();
+        if (catalinaAsyncContext != null) {
+            catalinaAsyncContext.recycle();
+        }
         coyoteAllowed = null;
         // grizzly is recycled in its own lifecycle
     }
@@ -553,16 +552,106 @@ public class CatalinaRequest extends org.apache.catalina.connector.Request {
 
     @Override
     public void removeAttribute(String name) {
+        Object oldValue = grizzlyRequest.getAttribute(name);
         grizzlyRequest.removeAttribute(name);
+        notifyAttributeRemoved(name, oldValue);
     }
 
     @Override
     public void setAttribute(String name, Object value) {
-        if (Globals.DISPATCHER_TYPE_ATTR.equals(name)) {
-            // bug in grizzly, dispatcher type not handled in getAttribute
-            internalDispatcherType = (DispatcherType) value;
+        boolean notifyListeners = true;
+        Object oldValue = null;
+        switch(name) {
+            case Globals.DISPATCHER_TYPE_ATTR:
+                // bug in grizzly, dispatcher type not handled in getAttribute
+                internalDispatcherType = (DispatcherType) value;
+                notifyListeners = false;
+                break;
+
+            case org.apache.catalina.Globals.ASYNC_SUPPORTED_ATTR:
+                oldValue = isAsyncSupported();
+                setAsyncSupported((Boolean) value);
+                break;
+            default:
+                oldValue = grizzlyRequest.getAttribute(name);
+                grizzlyRequest.setAttribute(name, value);
         }
-        grizzlyRequest.setAttribute(name, value);
+        if (notifyListeners) {
+            notifyAttributeAssigned(name, value, oldValue);
+        }
+    }
+
+    // As per Catalina request
+    private void notifyAttributeAssigned(String name, Object value,
+                                         Object oldValue) {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        Object listeners[] = context.getApplicationEventListeners();
+        if ((listeners == null) || (listeners.length == 0)) {
+            return;
+        }
+        boolean replaced = (oldValue != null);
+        ServletRequestAttributeEvent event = null;
+        if (replaced) {
+            event = new ServletRequestAttributeEvent(
+                    context.getServletContext(), getRequest(), name, oldValue);
+        } else {
+            event = new ServletRequestAttributeEvent(
+                    context.getServletContext(), getRequest(), name, value);
+        }
+
+        for (Object o : listeners) {
+            if (!(o instanceof ServletRequestAttributeListener)) {
+                continue;
+            }
+            ServletRequestAttributeListener listener = (ServletRequestAttributeListener) o;
+            try {
+                if (replaced) {
+                    listener.attributeReplaced(event);
+                } else {
+                    listener.attributeAdded(event);
+                }
+            } catch (Throwable t) {
+                ExceptionUtils.handleThrowable(t);
+                // Error valve will pick this exception up and display it to user
+                setAttribute(RequestDispatcher.ERROR_EXCEPTION, t);
+                context.getLogger().error(sm.getString("coyoteRequest.attributeEvent"), t);
+            }
+        }
+    }
+
+
+    /**
+     * Notify interested listeners that attribute has been removed.
+     *
+     * @param name Attribute name
+     * @param value Attribute value
+     */
+    private void notifyAttributeRemoved(String name, Object value) {
+        Context context = getContext();
+        Object listeners[] = context.getApplicationEventListeners();
+        if ((listeners == null) || (listeners.length == 0)) {
+            return;
+        }
+        ServletRequestAttributeEvent event =
+                new ServletRequestAttributeEvent(context.getServletContext(),
+                        getRequest(), name, value);
+        for (Object o : listeners) {
+            if (!(o instanceof ServletRequestAttributeListener)) {
+                continue;
+            }
+            ServletRequestAttributeListener listener = (ServletRequestAttributeListener) o;
+            try {
+                listener.attributeRemoved(event);
+            } catch (Throwable t) {
+                ExceptionUtils.handleThrowable(t);
+                // Error valve will pick this exception up and display it to user
+                setAttribute(RequestDispatcher.ERROR_EXCEPTION, t);
+                context.getLogger().error(sm.getString("coyoteRequest.attributeEvent"), t);
+            }
+        }
     }
 
     @Override
@@ -591,27 +680,61 @@ public class CatalinaRequest extends org.apache.catalina.connector.Request {
         // TODO: Heavy dependency on coyote here
         coyoteAllowed = CoyoteAccessReason.ASYNC;
         // Reimplementation requires overriding all async methods as asyncContext is private
-        return super.startAsync(request, response);
+        if (!isAsyncSupported()) {
+            // parent will explain why is async not supported
+            return super.startAsync(request, response);
+        }
+
+        if (catalinaAsyncContext == null) {
+            catalinaAsyncContext = new CatalinaAsyncContext(this);
+        }
+
+        catalinaAsyncContext.setStarted(getContext(), request, response,
+                request==getRequest() && response==getResponse().getResponse());
+        catalinaAsyncContext.setTimeout(getConnector().getAsyncTimeout());
+
+        return catalinaAsyncContext;
     }
 
     @Override
     public boolean isAsyncStarted() {
-        return super.isAsyncStarted();
+        if (catalinaAsyncContext == null) {
+            return false;
+        }
+        return catalinaAsyncContext.isStarted();
     }
 
     @Override
     public boolean isAsyncDispatching() {
-        return super.isAsyncDispatching();
+        if (catalinaAsyncContext == null) {
+            return false;
+        }
+        // TODO: maybe just directly ask the response
+        AtomicBoolean result = new AtomicBoolean(false);
+        coyoteRequest.action(ActionCode.ASYNC_IS_DISPATCHING, result);
+        return result.get();
     }
 
     @Override
     public boolean isAsyncCompleting() {
-        return super.isAsyncCompleting();
+        if (catalinaAsyncContext == null) {
+            return false;
+        }
+
+        AtomicBoolean result = new AtomicBoolean(false);
+        coyoteRequest.action(ActionCode.ASYNC_IS_COMPLETING, result);
+        return result.get();
     }
 
     @Override
     public boolean isAsync() {
-        return super.isAsync();
+        if (catalinaAsyncContext == null) {
+            return false;
+        }
+
+        AtomicBoolean result = new AtomicBoolean(false);
+        coyoteRequest.action(ActionCode.ASYNC_IS_ASYNC, result);
+        return result.get();
     }
 
     @Override
@@ -621,12 +744,12 @@ public class CatalinaRequest extends org.apache.catalina.connector.Request {
 
     @Override
     public AsyncContext getAsyncContext() {
-        return super.getAsyncContext();
+        return catalinaAsyncContext;
     }
 
     @Override
     public AsyncContextImpl getAsyncContextInternal() {
-        return super.getAsyncContextInternal();
+        return catalinaAsyncContext;
     }
 
     @Override

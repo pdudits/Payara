@@ -331,6 +331,7 @@ public class GrizzlyCatalinaBridge extends HttpHandler {
             catalinaRequest.setRequests(request, grizzlyRequest);
             catalinaResponse.setResponses(response, grizzlyResponse);
             grizzlyRequest.setNote(CATALINA_REQUEST, catalinaRequest);
+            request.setRequestThread();
         }
 
         @Override
@@ -427,12 +428,12 @@ public class GrizzlyCatalinaBridge extends HttpHandler {
 
         @Override
         protected AbstractEndpoint.Handler.SocketState dispatchEndRequest() throws IOException {
-            return null;
+            throw new UnsupportedOperationException("No idea what to do");
         }
 
         @Override
         protected AbstractEndpoint.Handler.SocketState service(SocketWrapperBase<?> socketWrapperBase) throws IOException {
-            return null;
+            throw new UnsupportedOperationException("No idea what to do");
         }
 
         @Override

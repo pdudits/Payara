@@ -54,6 +54,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -65,8 +66,10 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.catalina.Context;
 import org.apache.catalina.connector.Request;
+import org.apache.catalina.core.AsyncContextImpl;
 import org.apache.coyote.ContinueResponseTiming;
 import org.apache.tomcat.util.security.Escape;
+import org.glassfish.grizzly.EmptyCompletionHandler;
 import org.glassfish.grizzly.WriteHandler;
 import org.glassfish.grizzly.http.io.OutputBuffer;
 import org.glassfish.grizzly.http.server.Response;
@@ -128,6 +131,16 @@ public class CatalinaResponse extends org.apache.catalina.connector.Response {
         }
         // TODO: need to implement counters
         return -1;
+    }
+
+    void asyncStarted(AsyncContextImpl ctx) {
+        grizzlyResponse.suspend(-1, TimeUnit.MILLISECONDS, new EmptyCompletionHandler<>() {
+            @Override
+            public void completed(Response result) {
+                ctx.complete();
+            }
+        }, response -> ctx.timeout());
+
     }
 
     @Override
@@ -603,6 +616,10 @@ public class CatalinaResponse extends org.apache.catalina.connector.Response {
     void setResponses(org.apache.coyote.Response response, Response grizzlyResponse) {
         super.setCoyoteResponse(response);
         this.grizzlyResponse = grizzlyResponse;
+    }
+
+    Response getGrizzlyResponse() {
+        return grizzlyResponse;
     }
 
     private class GrizzlyServletOutputStream extends ServletOutputStream {

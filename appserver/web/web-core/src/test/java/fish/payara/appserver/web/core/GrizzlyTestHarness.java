@@ -94,6 +94,7 @@ public class GrizzlyTestHarness extends ExternalResource {
     static void setLoggerLevels() {
         Logger.getLogger("org.glassfish.grizzly").setLevel(Level.INFO);
         Logger.getLogger("org.apache.catalina").setLevel(Level.ALL);
+        Logger.getLogger("org.apache.catalina.core.AsyncContextImpl").setLevel(Level.FINE);
         Logger.getLogger("org.apache.catalina.util.LifecycleBase").setLevel(Level.INFO);
         for (Handler handler : Logger.getLogger("").getHandlers()) {
             handler.setLevel(Level.ALL);
@@ -148,8 +149,7 @@ public class GrizzlyTestHarness extends ExternalResource {
     }
 
     public StandardContext addContext(String contextName, Consumer<ContextBuilder> builder) {
-        var ctx = catalina.addContext(contextName);
-        builder.accept(() -> ctx);
+        var ctx = catalina.addContext(contextName, c -> builder.accept(() -> c));
         return ctx;
     }
 
@@ -189,7 +189,7 @@ public class GrizzlyTestHarness extends ExternalResource {
         }
     }
 
-    protected static class Catalina {
+    public static class Catalina {
 
         public static void addFilter(StandardContext context, String filterName, Class<? extends Filter> filterClass, String mapping) {
             var filterDef = new FilterDef();
@@ -230,12 +230,13 @@ public class GrizzlyTestHarness extends ExternalResource {
             stack.stop();
         }
 
-        protected StandardContext addContext(String name) {
+        protected StandardContext addContext(String name, Consumer<StandardContext> configurer) {
             var ctx = new StandardContext();
             ctx.setName(name);
             ctx.setPath("ROOT".equals(name) ? "" : ("/" + name));
             // Needed for embedded usecase without tomcat deployer
             ctx.addLifecycleListener(new Tomcat.FixContextListener());
+            configurer.accept(ctx);
             host.addChild(ctx);
             // TCK methods need activity checking - session cannot expire while request is being processed.
             ctx.getManager().setSessionActivityCheck(true);
@@ -251,7 +252,7 @@ public class GrizzlyTestHarness extends ExternalResource {
             return wrapper;
         }
 
-        protected static StandardWrapper addServlet(StandardContext ctx, String servletName, Class<? extends Servlet> servletClass, String mapping,
+        public static StandardWrapper addServlet(StandardContext ctx, String servletName, Class<? extends Servlet> servletClass, String mapping,
                                                     String... extraMapping) {
             var wrapper = new StandardWrapper();
             wrapper.setServletClass(servletClass.getName());
