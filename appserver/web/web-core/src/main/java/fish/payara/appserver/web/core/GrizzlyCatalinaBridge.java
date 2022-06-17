@@ -44,20 +44,24 @@ package fish.payara.appserver.web.core;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.SessionTrackingMode;
+import jakarta.servlet.WriteListener;
 import org.apache.catalina.Context;
 import org.apache.catalina.Host;
 import org.apache.catalina.Wrapper;
+import org.apache.catalina.core.AsyncContextImpl;
 import org.apache.catalina.util.SessionConfig;
 import org.apache.catalina.util.URLEncoder;
 import org.apache.coyote.AbstractProcessor;
@@ -65,9 +69,11 @@ import org.apache.coyote.ActionCode;
 import org.apache.coyote.Adapter;
 import org.apache.coyote.ContinueResponseTiming;
 import org.apache.juli.logging.Log;
+import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.buf.MessageBytes;
 import org.apache.tomcat.util.net.AbstractEndpoint;
+import org.apache.tomcat.util.net.DispatchType;
 import org.apache.tomcat.util.net.SocketEvent;
 import org.apache.tomcat.util.net.SocketWrapperBase;
 import org.glassfish.grizzly.http.Method;
@@ -84,12 +90,14 @@ import static org.apache.catalina.connector.CoyoteAdapter.ADAPTER_NOTES;
  */
 public class GrizzlyCatalinaBridge extends HttpHandler {
     private static final Logger LOG = Logger.getLogger(GrizzlyCatalinaBridge.class.getName());
+
     /**
      * Position of grizzly request within coyote adapter notes
      */
     static final int GRIZZLY_NOTE = 9;
 
     static final Note<CatalinaRequest> CATALINA_REQUEST = Request.createNote(CatalinaRequest.class.getName());
+
     static final Note<Processor> PROCESSOR = Request.createNote(Processor.class.getName());
 
     private static final ThreadLocal<String> THREAD_NAME =
@@ -117,108 +125,10 @@ public class GrizzlyCatalinaBridge extends HttpHandler {
     public void service(Request request, Response response) throws Exception {
         var processor = getProcessor(request, response);
 
-        if (connector.getXpoweredBy()) {
-            response.addHeader("X-Powered-By", "Grizllyote");
-        }
+        var result = processor.process(null, SocketEvent.OPEN_READ);
 
-        boolean async = false;
-        boolean postParseSuccess = false;
-
-        processor.getRequest().getRequestProcessor().setWorkerThreadName(THREAD_NAME.get());
-        processor.getRequest().setRequestThread();
-
-        // this is from CoyoteAdapter.service
-        try {
-            // Parse and set Catalina and configuration specific
-            // request parameters
-            postParseSuccess = processor.parseRequest();
-            if (postParseSuccess) {
-                //check valves if we support async
-                processor.catalinaRequest.setAsyncSupported(
-                        connector.getService().getContainer().getPipeline().isAsyncSupported());
-                // Calling the container
-                connector.getService().getContainer().getPipeline().getFirst().invoke(
-                        processor.catalinaRequest, processor.catalinaResponse);
-            }
-            if (processor.catalinaRequest.isAsync()) {
-                async = true;
-                ReadListener readListener = processor.getRequest().getReadListener();
-                if (readListener != null && processor.catalinaRequest.isFinished()) {
-                    // Possible the all data may have been read during service()
-                    // method so this needs to be checked here
-                    ClassLoader oldCL = null;
-                    try {
-                        oldCL = processor.catalinaRequest.getContext().bind(false, null);
-                        if (processor.getRequest().sendAllDataReadEvent()) {
-                            processor.getRequest().getReadListener().onAllDataRead();
-                        }
-                    } finally {
-                        processor.catalinaRequest.getContext().unbind(false, oldCL);
-                    }
-                }
-
-                Throwable throwable =
-                        (Throwable) processor.catalinaRequest.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
-
-                // If an async request was started, is not going to end once
-                // this container thread finishes and an error occurred, trigger
-                // the async error process
-                if (!processor.catalinaRequest.isAsyncCompleting() && throwable != null) {
-                    processor.catalinaRequest.getAsyncContextInternal().setErrorState(throwable, true);
-                }
-            } else {
-                processor.catalinaRequest.finishRequest();
-                processor.catalinaResponse.finishResponse();
-            }
-
-        } catch (IOException e) {
-            // Ignore
-        } finally {
-            AtomicBoolean error = new AtomicBoolean(false);
-            processor.getResponse().action(ActionCode.IS_ERROR, error);
-
-            if (processor.catalinaRequest.isAsyncCompleting() && error.get()) {
-                // Connection will be forcibly closed which will prevent
-                // completion happening at the usual point. Need to trigger
-                // call to onComplete() here.
-                processor.getResponse().action(ActionCode.ASYNC_POST_PROCESS, null);
-                async = false;
-            }
-
-            // Access log
-            if (!async && postParseSuccess) {
-                // Log only if processing was invoked.
-                // If postParseRequest() failed, it has already logged it.
-                Context context = processor.catalinaRequest.getContext();
-                Host host = processor.catalinaRequest.getHost();
-                // If the context is null, it is likely that the endpoint was
-                // shutdown, this connection closed and the request recycled in
-                // a different thread. That thread will have updated the access
-                // log so it is OK not to update the access log here in that
-                // case.
-                // The other possibility is that an error occurred early in
-                // processing and the request could not be mapped to a Context.
-                // Log via the host or engine in that case.
-                long time = System.nanoTime() - processor.getRequest().getStartTimeNanos();
-                if (context != null) {
-                    context.logAccess(processor.catalinaRequest, processor.catalinaResponse, time, false);
-                } else if (response.isError()) {
-                    if (host != null) {
-                        host.logAccess(processor.catalinaRequest, processor.catalinaResponse, time, false);
-                    } else {
-                        connector.getService().getContainer().logAccess(
-                                processor.catalinaRequest, processor.catalinaResponse, time, false);
-                    }
-                }
-            }
-
-            processor.getRequest().getRequestProcessor().setWorkerThreadName(null);
-
-            // Recycle the wrapper request and response
-            if (!async) {
-                //updateWrapperErrorCount(request, response);
-                processor.recycle();
-            }
+        if (result != AbstractEndpoint.Handler.SocketState.LONG) {
+            processor.recycle();
         }
     }
 
@@ -275,8 +185,193 @@ public class GrizzlyCatalinaBridge extends HttpHandler {
         }
 
         @Override
-        public boolean asyncDispatch(org.apache.coyote.Request request, org.apache.coyote.Response response, SocketEvent socketEvent) throws Exception {
-            throw new UnsupportedOperationException("Not implemented yet");
+        public boolean asyncDispatch(org.apache.coyote.Request req, org.apache.coyote.Response res, SocketEvent status) throws Exception {
+            org.apache.catalina.connector.Request request = (org.apache.catalina.connector.Request) req.getNote(ADAPTER_NOTES);
+            org.apache.catalina.connector.Response response = (org.apache.catalina.connector.Response) res.getNote(ADAPTER_NOTES);
+
+            // this is what CoyoteAdapter is doing
+            if (request == null) {
+                throw new IllegalStateException("No request found");
+            }
+
+            boolean success = true;
+            AsyncContextImpl asyncConImpl = request.getAsyncContextInternal();
+
+            req.getRequestProcessor().setWorkerThreadName(THREAD_NAME.get());
+            req.setRequestThread();
+
+            try {
+                if (!request.isAsync()) {
+                    // Error or timeout
+                    // Lift any suspension (e.g. if sendError() was used by an async
+                    // request) to allow the response to be written to the client
+                    response.setSuspended(false);
+                }
+
+                if (status==SocketEvent.TIMEOUT) {
+                    if (!asyncConImpl.timeout()) {
+                        asyncConImpl.setErrorState(null, false);
+                    }
+                } else if (status==SocketEvent.ERROR) {
+                    // An I/O error occurred on a non-container thread which means
+                    // that the socket needs to be closed so set success to false to
+                    // trigger a close
+                    success = false;
+                    Throwable t = (Throwable)req.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
+                    Context context = request.getContext();
+                    ClassLoader oldCL = null;
+                    try {
+                        oldCL = context.bind(false, null);
+                        if (req.getReadListener() != null) {
+                            req.getReadListener().onError(t);
+                        }
+                        if (res.getWriteListener() != null) {
+                            res.getWriteListener().onError(t);
+                        }
+                        res.action(ActionCode.CLOSE_NOW, t);
+                        asyncConImpl.setErrorState(t, true);
+                    } finally {
+                        context.unbind(false, oldCL);
+                    }
+                }
+
+                // Check to see if non-blocking writes or reads are being used
+                if (!request.isAsyncDispatching() && request.isAsync()) {
+                    WriteListener writeListener = res.getWriteListener();
+                    ReadListener readListener = req.getReadListener();
+                    if (writeListener != null && status == SocketEvent.OPEN_WRITE) {
+                        Context context = request.getContext();
+                        ClassLoader oldCL = null;
+                        try {
+                            oldCL = context.bind(false, null);
+                            res.onWritePossible();
+                            if (request.isFinished() && req.sendAllDataReadEvent() &&
+                                    readListener != null) {
+                                readListener.onAllDataRead();
+                            }
+                            // User code may have swallowed an IOException
+                            if (response.getCoyoteResponse().isExceptionPresent()) {
+                                throw response.getCoyoteResponse().getErrorException();
+                            }
+                        } catch (Throwable t) {
+                            ExceptionUtils.handleThrowable(t);
+                            // Need to trigger the call to AbstractProcessor.setErrorState()
+                            // before the listener is called so the listener can call complete
+                            // Therefore no need to set success=false as that would trigger a
+                            // second call to AbstractProcessor.setErrorState()
+                            // https://bz.apache.org/bugzilla/show_bug.cgi?id=65001
+                            writeListener.onError(t);
+                            res.action(ActionCode.CLOSE_NOW, t);
+                            asyncConImpl.setErrorState(t, true);
+                        } finally {
+                            context.unbind(false, oldCL);
+                        }
+                    } else if (readListener != null && status == SocketEvent.OPEN_READ) {
+                        Context context = request.getContext();
+                        ClassLoader oldCL = null;
+                        try {
+                            oldCL = context.bind(false, null);
+                            // If data is being read on a non-container thread a
+                            // dispatch with status OPEN_READ will be used to get
+                            // execution back on a container thread for the
+                            // onAllDataRead() event. Therefore, make sure
+                            // onDataAvailable() is not called in this case.
+                            if (!request.isFinished()) {
+                                req.onDataAvailable();
+                            }
+                            if (request.isFinished() && req.sendAllDataReadEvent()) {
+                                readListener.onAllDataRead();
+                            }
+                            // User code may have swallowed an IOException
+                            if (request.getCoyoteRequest().isExceptionPresent()) {
+                                throw request.getCoyoteRequest().getErrorException();
+                            }
+                        } catch (Throwable t) {
+                            ExceptionUtils.handleThrowable(t);
+                            // Need to trigger the call to AbstractProcessor.setErrorState()
+                            // before the listener is called so the listener can call complete
+                            // Therefore no need to set success=false as that would trigger a
+                            // second call to AbstractProcessor.setErrorState()
+                            // https://bz.apache.org/bugzilla/show_bug.cgi?id=65001
+                            readListener.onError(t);
+                            res.action(ActionCode.CLOSE_NOW, t);
+                            asyncConImpl.setErrorState(t, true);
+                        } finally {
+                            context.unbind(false, oldCL);
+                        }
+                    }
+                }
+
+                // Has an error occurred during async processing that needs to be
+                // processed by the application's error page mechanism (or Tomcat's
+                // if the application doesn't define one)?
+                if (!request.isAsyncDispatching() && request.isAsync() &&
+                        response.isErrorReportRequired()) {
+                    connector.getService().getContainer().getPipeline().getFirst().invoke(
+                            request, response);
+                }
+
+                if (request.isAsyncDispatching()) {
+                    connector.getService().getContainer().getPipeline().getFirst().invoke(
+                            request, response);
+                    Throwable t = (Throwable) request.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
+                    if (t != null) {
+                        asyncConImpl.setErrorState(t, true);
+                    }
+                }
+
+                if (!request.isAsync()) {
+                    request.finishRequest();
+                    response.finishResponse();
+                }
+
+                // Check to see if the processor is in an error state. If it is,
+                // bail out now.
+                AtomicBoolean error = new AtomicBoolean(false);
+                res.action(ActionCode.IS_ERROR, error);
+                if (error.get()) {
+                    if (request.isAsyncCompleting()) {
+                        // Connection will be forcibly closed which will prevent
+                        // completion happening at the usual point. Need to trigger
+                        // call to onComplete() here.
+                        res.action(ActionCode.ASYNC_POST_PROCESS,  null);
+                    }
+                    success = false;
+                }
+            } catch (IOException e) {
+                success = false;
+                // Ignore
+            } catch (Throwable t) {
+                ExceptionUtils.handleThrowable(t);
+                success = false;
+                LOG.log(Level.SEVERE, "Async Dispatch Failed", t);
+            } finally {
+                if (!success) {
+                    res.setStatus(500);
+                }
+
+                // Access logging
+                if (!success || !request.isAsync()) {
+                    long time = 0;
+                    if (req.getStartTimeNanos() != -1) {
+                        time = System.nanoTime() - req.getStartTimeNanos();
+                    }
+                    Context context = request.getContext();
+                    if (context != null) {
+                        context.logAccess(request, response, time, false);
+                    } else {
+                        log(req, res, time);
+                    }
+                }
+
+                req.getRequestProcessor().setWorkerThreadName(null);
+                // Recycle the wrapper request and response
+                if (!success || !request.isAsync()) {
+                    request.recycle();
+                    response.recycle();
+                }
+            }
+            return success;
         }
 
         @Override
@@ -433,7 +528,110 @@ public class GrizzlyCatalinaBridge extends HttpHandler {
 
         @Override
         protected AbstractEndpoint.Handler.SocketState service(SocketWrapperBase<?> socketWrapperBase) throws IOException {
-            throw new UnsupportedOperationException("No idea what to do");
+            // this is what adapter normally does
+
+            if (connector.getXpoweredBy()) {
+                grizzlyResponse.addHeader("X-Powered-By", "Grizllyote");
+            }
+
+            boolean async = false;
+            boolean postParseSuccess = false;
+
+            getRequest().getRequestProcessor().setWorkerThreadName(THREAD_NAME.get());
+            getRequest().setRequestThread();
+
+            // this is from CoyoteAdapter.service
+            try {
+                // Parse and set Catalina and configuration specific
+                // request parameters
+                postParseSuccess = parseRequest();
+                if (postParseSuccess) {
+                    //check valves if we support async
+                    catalinaRequest.setAsyncSupported(
+                            connector.getService().getContainer().getPipeline().isAsyncSupported());
+                    // Calling the container
+                    connector.getService().getContainer().getPipeline().getFirst().invoke(
+                            catalinaRequest, catalinaResponse);
+                }
+                if (catalinaRequest.isAsync()) {
+                    async = true;
+                    ReadListener readListener = getRequest().getReadListener();
+                    if (readListener != null && catalinaRequest.isFinished()) {
+                        // Possible the all data may have been read during service()
+                        // method so this needs to be checked here
+                        ClassLoader oldCL = null;
+                        try {
+                            oldCL = catalinaRequest.getContext().bind(false, null);
+                            if (getRequest().sendAllDataReadEvent()) {
+                                getRequest().getReadListener().onAllDataRead();
+                            }
+                        } finally {
+                            catalinaRequest.getContext().unbind(false, oldCL);
+                        }
+                    }
+
+                    Throwable throwable =
+                            (Throwable) catalinaRequest.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
+
+                    // If an async request was started, is not going to end once
+                    // this container thread finishes and an error occurred, trigger
+                    // the async error process
+                    if (!catalinaRequest.isAsyncCompleting() && throwable != null) {
+                        catalinaRequest.getAsyncContextInternal().setErrorState(throwable, true);
+                    }
+                } else {
+                    catalinaRequest.finishRequest();
+                    catalinaResponse.finishResponse();
+                }
+
+            } catch (IOException | ServletException e) {
+                // Ignore
+            } finally {
+                AtomicBoolean error = new AtomicBoolean(false);
+                getResponse().action(ActionCode.IS_ERROR, error);
+
+                if (catalinaRequest.isAsyncCompleting() && error.get()) {
+                    // Connection will be forcibly closed which will prevent
+                    // completion happening at the usual point. Need to trigger
+                    // call to onComplete() here.
+                    getResponse().action(ActionCode.ASYNC_POST_PROCESS, null);
+                    async = false;
+                }
+
+                // Access log
+                if (!async && postParseSuccess) {
+                    // Log only if processing was invoked.
+                    // If postParseRequest() failed, it has already logged it.
+                    Context context = catalinaRequest.getContext();
+                    Host host = catalinaRequest.getHost();
+                    // If the context is null, it is likely that the endpoint was
+                    // shutdown, this connection closed and the request recycled in
+                    // a different thread. That thread will have updated the access
+                    // log so it is OK not to update the access log here in that
+                    // case.
+                    // The other possibility is that an error occurred early in
+                    // processing and the request could not be mapped to a Context.
+                    // Log via the host or engine in that case.
+                    long time = System.nanoTime() - getRequest().getStartTimeNanos();
+                    if (context != null) {
+                        context.logAccess(catalinaRequest, catalinaResponse, time, false);
+                    } else if (grizzlyResponse.isError()) {
+                        if (host != null) {
+                            host.logAccess(catalinaRequest, catalinaResponse, time, false);
+                        } else {
+                            connector.getService().getContainer().logAccess(
+                                    catalinaRequest, catalinaResponse, time, false);
+                        }
+                    }
+                }
+
+                getRequest().getRequestProcessor().setWorkerThreadName(null);
+            }
+            if (async) {
+                return AbstractEndpoint.Handler.SocketState.LONG;
+            } else {
+                return AbstractEndpoint.Handler.SocketState.CLOSED;
+            }
         }
 
         @Override

@@ -55,6 +55,7 @@ import com.sun.ts.tests.servlet.api.jakarta_servlet_http.httpservletrequest40.Na
 import com.sun.ts.tests.servlet.api.jakarta_servlet_http.httpservletrequest40.TestServlet;
 import com.sun.ts.tests.servlet.api.jakarta_servlet_http.httpservletrequest40.TrailerTestServlet;
 import org.apache.catalina.core.StandardContext;
+import org.apache.catalina.core.StandardWrapper;
 import org.junit.After;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -64,17 +65,21 @@ public class HttpServletRequest40TCK extends TCKBase {
 
     @Test
     public void httpServletRequest40Tests() throws IOException {
-        context = harness.addContext("servlet_jsh_httpservletrequest40_web", ctx ->
-                ctx.addFilter("ForwardFilter", ForwardFilter.class, "/ForwardFilter")
-                        .addServlet("TestServlet", TestServlet.class, "/TestServlet", "*.ts")
-                        .addServlet("DispatchServlet", DispatchServlet.class, "/DispatchServlet")
-                        .addServlet("ForwardServlet", ForwardServlet.class, "/ForwardServlet")
-                        .addServlet("defaultServlet", TestServlet.class, "/")
-                        .addServlet("IncludeServlet", IncludeServlet.class, "/IncludeServlet")
-                        .addServlet("NamedForwardServlet", NamedForwardServlet.class, "/NamedForwardServlet")
-                        .addServlet("NamedIncludeServlet", NamedIncludeServlet.class, "/NamedIncludeServlet")
-                        .addServlet("TrailerTestServlet", TrailerTestServlet.class, "/TrailerTestServlet"));
-        harness.runTck(new Client(), "httpServletMappingDispatchTest");
+        context = harness.addContext("servlet_jsh_httpservletrequest40_web", ctx -> {
+                    ctx.addFilter("ForwardFilter", ForwardFilter.class, "/ForwardFilter")
+                            .addServlet("TestServlet", TestServlet.class, "/TestServlet", "*.ts")
+                            .addServlet("DispatchServlet", DispatchServlet.class, "/DispatchServlet")
+                            .addServlet("ForwardServlet", ForwardServlet.class, "/ForwardServlet")
+                            .addServlet("defaultServlet", TestServlet.class, "/")
+                            .addServlet("IncludeServlet", IncludeServlet.class, "/IncludeServlet")
+                            .addServlet("NamedForwardServlet", NamedForwardServlet.class, "/NamedForwardServlet")
+                            .addServlet("NamedIncludeServlet", NamedIncludeServlet.class, "/NamedIncludeServlet")
+                            .addServlet("TrailerTestServlet", TrailerTestServlet.class, "/TrailerTestServlet");
+                    var dispatchWrapper = (StandardWrapper)ctx.getContext().findChild("DispatchServlet");
+                    dispatchWrapper.setAsyncSupported(true);
+                }
+        );
+        harness.runTck(new Client());
         // failing test uses async dispatch, we don't have that yet.
     }
 }
