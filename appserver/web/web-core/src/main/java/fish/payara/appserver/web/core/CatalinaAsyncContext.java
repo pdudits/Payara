@@ -49,6 +49,7 @@ import jakarta.servlet.ServletResponse;
 import org.apache.catalina.Context;
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.core.AsyncContextImpl;
+import org.apache.coyote.ActionCode;
 import org.glassfish.grizzly.EmptyCompletionHandler;
 import org.glassfish.grizzly.http.server.Response;
 
@@ -90,6 +91,28 @@ public class CatalinaAsyncContext extends AsyncContextImpl {
                     public void completed(Response result) {
                         fireOnComplete();
                     }
-                }, (x) -> timeout()); // TODO: this needs additional confirmation over processor
+                }, (x) -> fireTimeout());
+    }
+
+    private boolean fireTimeout() {
+        // we want to notify listeners and timeout, even if the original server method didn't finish
+        // (async machine state is starting). We have no way of finding that out, so let's just do
+        try {
+            return timeout();
+        } catch (IllegalStateException iae) {
+            if (isStarted()) {
+                // we're in async mode STARTING, let's move it to STARTED mode with postAsync action
+                catalinaRequest.getCoyoteRequest().action(ActionCode.ASYNC_POST_PROCESS, null);
+                // and try again
+                return timeout();
+            }
+            throw iae;
+        }
+    }
+
+    @Override
+    public void setTimeout(long timeout) {
+        super.setTimeout(timeout);
+        catalinaRequest.getGrizzlyRequest().getResponse().getSuspendContext().setTimeout(timeout, TimeUnit.MILLISECONDS);
     }
 }

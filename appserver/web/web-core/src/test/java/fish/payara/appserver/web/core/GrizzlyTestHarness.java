@@ -132,6 +132,12 @@ public class GrizzlyTestHarness extends ExternalResource {
             return this;
         }
 
+        default ContextBuilder addServlet(String servletName, Class<? extends Servlet> servletClass, String mapping, Consumer<StandardWrapper> servletCustomizer) {
+            var wrapper = Catalina.addServlet(getContext(), servletName, servletClass, mapping);
+            servletCustomizer.accept(wrapper);
+            return this;
+        }
+
         default ContextBuilder addServlet(String servletName, Class<? extends Servlet> servletClass, String mapping, String... extraMapping) {
             Catalina.addServlet(getContext(), servletName, servletClass, mapping, extraMapping);
             return this;
