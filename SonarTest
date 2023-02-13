@@ -1,0 +1,38 @@
+#!groovy
+@Library('PayaraTestLibrary') _
+
+pipeline {
+  agent none
+  stages {
+    stage('Checkout') {
+      agent {
+        label 'ubuntu'
+      }
+      steps {
+        checkout scm
+      }
+    }
+    stage ('Build and Analysis') {
+      agent {
+        label 'ubuntu'
+      }
+      steps {
+        withMaven(jdk: 'zulu-11', publisherStrategy: 'EXPLICIT') {
+          withSonarQubeEnv(installationName: 'Payara-Testone', credentialsId: 'pdudits-sonar') {
+            sh "mvn clean install -DskipTests -PQuickBuild sonar:sonar -Dsonar.projectKey=pdudits -Dsonar.projectName=pdudits"
+          }
+        }
+      }
+    }
+    stage ('Quality Gate') {
+      agent {
+        label 'ubuntu'
+      }
+      steps {
+        timeout(time: 1, unit: 'HOURS') {
+          waitForQualityGate abortPipeline: true, credentialsId: 'pdudits-sonar'
+        }
+      }
+    }
+  }
+}
